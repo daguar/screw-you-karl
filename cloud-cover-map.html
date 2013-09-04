@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' />
+  <script src='http://api.tiles.mapbox.com/mapbox.js/v1.3.1/mapbox.js'></script>
+  <link href='http://api.tiles.mapbox.com/mapbox.js/v1.3.1/mapbox.css' rel='stylesheet' />
+  <!--[if lte IE 8]>
+    <link href='http://api.tiles.mapbox.com/mapbox.js/v1.3.1/mapbox.ie.css' rel='stylesheet' >
+  <![endif]-->
+  <style>
+    body { margin:0; padding:20; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    #time_box { 
+    	position:absolute;
+    	left: 100px;
+    	bottom: 100px;
+    	width: 15%;
+    	height: 30%;
+    	background-color: white;
+    	font-size: 30px;
+    	font-family: 'Arial';
+    }
+  </style>
+</head>
+<body>
+<div id='map'></div>
+<div id='time_box'>Time: 
+	<div id="selected_time"></div>
+	<br>
+	<div id="location_data"></div>
+</div>
+
+<div id="slider"></div>
+
+<script src="jquery-1.10.2.min.js"></script>
+
+
+<script type='text/javascript'>
+
+	// Lots of this taken from Leaflet choropleth tutorial
+	// http://leafletjs.com/examples/choropleth.html
+
+	// Load weather data
+	var weatherData;
+	$.getJSON('data/weather_data_stable.json', function(data) {
+		weatherData = data;
+	});
+
+	var map = L.mapbox.map('map', 'codeforamerica.map-e4tteqfz');
+
+	// Set cloud cover
+	// (Right now random)
+	// Random helper taken from: http://stackoverflow.com/questions/1527803/generating-random-numbers-in-javascript-in-a-specific-range
+	function getRandomInt (min, max) {
+    	return Math.floor(Math.random() * (max - min + 1)) + min;
+	}
+
+	// Gradients from ColorHexa
+	// http://www.colorhexa.com/777777-to-ffff61
+	function getColor(d) {
+		d = 100 - d;
+	    return d == undefined ? 'blue':
+	    	   d > 91  ? '#ffff61' :
+	           d > 81  ? '#f4f463' :
+	           d > 71  ? '#e8e865' :
+	           d > 61  ? '#dddd67' :
+	           d > 51  ? '#d2d268' :
+	           d > 41  ? '#bbbb6c' :
+	           d > 31  ? '#b0b06e' :
+	           d > 21  ? '#a4a470' :
+	           d > 11  ? '#8e8e73' :
+	           d > 1   ? '#828275' :
+	                     '#777777';
+	}
+
+	function getOpacity(d) {
+		//d = 100 - d;
+		return (d / 100);
+	}
+
+	// Set the color based on cloud cover
+	function style(feature) {
+		//color = getColor(feature.properties.selectedCloudCover);
+	    return {
+	        //fillColor: color,
+	        // Set fillColor to 10am sky
+	        // Make grey
+	        //fillColor: color,
+	        fillColor: "gray",
+	        weight: 2,
+	        opacity: 1,
+	        color: 'white',
+	        dashArray: '3',
+	        fillOpacity: getOpacity(feature.properties.selectedCloudCover)
+	    };
+	}
+
+
+	// Feature click action
+	function showCloudCover(e) {
+		var layer = e.target;
+		//console.log(layer.feature.properties.zipCode + " - " + layer.feature.properties.selectedTime + " - " + layer.feature.properties.selectedCloudCover);
+		$("#location_data").text(layer.feature.properties.zipCode + " - " + layer.feature.properties.selectedCloudCover);
+	}
+	function onEachFeature(feature, layer) {
+		layer.on({
+			click: showCloudCover
+		});
+	}
+
+	// Var for geojson layer access
+	var geojson;
+
+	// Set the index for the first reading in the forecast to be used
+	var startDigit = 0;
+
+	// Load shapefiles
+	var zipCodeShapes;
+	$.getJSON('data/shapes/sf_and_eb_shapes.geojson', function(data) {
+		zipCodeShapes = data;
+		// Add forecasts to shapes
+		zipCodeShapes.features.map( function(singleFeature) { 
+			zipCode = singleFeature.properties.zcta5ce10;
+			// Make a more readable zipCode feature
+			singleFeature.properties.zipCode = zipCode;
+			matchedForecasts = $.grep(weatherData, function(e) { return e.zip_code === zipCode; } );
+			singleForecast = matchedForecasts[0];
+			try {
+				singleFeature.properties.forecast = singleForecast.forecast;
+				singleFeature.properties.selectedCloudCover = singleFeature.properties.forecast[startDigit].sky;
+				singleFeature.properties.selectedTime = singleFeature.properties.forecast[startDigit].civil;
+			}
+			catch(err) {
+				singleFeature.properties.forecast = 0;
+			}
+		});
+		geojson = L.geoJson(zipCodeShapes, {
+			style: style,
+			onEachFeature: onEachFeature,
+		}).addTo(map);
+		// Set time
+		time = zipCodeShapes.features[0].properties.selectedTime;
+		$("#selected_time").text(time);
+	});
+
+	function updateMap(index) {
+		var new_time = zipCodeShapes.features[0].properties.selectedTime;
+		console.log(new_time);
+		zipCodeShapes.features.map( function(singleFeature) {
+			try {
+				singleFeature.properties.selectedCloudCover = singleFeature.properties.forecast[index].sky;
+				singleFeature.properties.selectedTime = singleFeature.properties.forecast[index].civil;
+			}
+			catch(err) {
+				singleFeature.properties.forecast = 0;
+			}
+		});
+		// Hacky: need to fix it such that we're not adding layers, but rather restyling the current layer
+		map.removeLayer(geojson);
+		geojson = L.geoJson(zipCodeShapes, {
+			style: style,
+			onEachFeature: onEachFeature
+		}).addTo(map);
+		$("#selected_time").text(new_time);
+	}
+
+	function timor(counter) {
+		window.setTimeout(function() {
+			updateMap(counter);
+			if (counter === startDigit+15) { return 0 };
+			timor(counter+1);
+		}, 1000);
+	}
+
+	$(document).ready(function() {
+		var counter = startDigit;
+		timor(counter);
+	});
+
+</script>
+</body>
+</html>
+
